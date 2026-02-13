@@ -9,11 +9,11 @@ services:
     restart: unless-stopped
     
     environment:
-      # Database connection (from Coolify environment)
-      - MYSQL_HOST=${MYSQL_HOST:-lo4w8ks48sgcsw000wsgs8cg}
+      # Database connection (from Coolify environment) - uses existing mariadb-izziot-test
+      - MYSQL_HOST=${MYSQL_HOST:-wws0cswsokg0ok88w48g004c}
       - MYSQL_PORT=${MYSQL_PORT:-3306}
       - MYSQL_DATABASE=${MYSQL_DATABASE:-myaac}
-      - MYSQL_USER=${MYSQL_USER:-myaac}
+      - MYSQL_USER=${MYSQL_USER:-mariadb}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       
       # MyAAC specific
