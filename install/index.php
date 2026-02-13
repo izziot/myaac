@@ -83,7 +83,20 @@ if($step == 'database') {
 				$config['server_path'] .= '/';
 			}
 
-			if(!file_exists($config['server_path'] . 'config.lua')) {
+			// Check for custom config.lua path from servers.json in Docker mode
+			$configFileName = 'config.lua';
+			$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
+			if ($isDocker && file_exists(BASE . 'config/servers.json')) {
+				$servers = json_decode(file_get_contents(BASE . 'config/servers.json'), true);
+				if (!empty($servers['servers'])) {
+					$firstServer = $servers['servers'][0];
+					if (!empty($firstServer['config_path'])) {
+						$configFileName = $firstServer['config_path'];
+					}
+				}
+			}
+
+			if(!file_exists($config['server_path'] . $configFileName)) {
 				$errors[] = $locale['step_database_error_config'];
 				break;
 			}

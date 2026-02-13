@@ -18,6 +18,19 @@ if (empty($_SESSION['var_site_url'])) {
 	$_SESSION['var_site_url'] = $siteURL;
 }
 
+// Docker mode: auto-detect server_path from servers.json
+$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
+if ($isDocker && empty($_SESSION['var_server_path'])) {
+	$serversFile = BASE . 'config/servers.json';
+	if (file_exists($serversFile)) {
+		$servers = json_decode(file_get_contents($serversFile), true);
+		if (!empty($servers['servers'])) {
+			$firstServer = $servers['servers'][0];
+			$_SESSION['var_server_path'] = '/srv/servers/' . $firstServer['id'] . '/';
+		}
+	}
+}
+
 $twig->display('install.config.html.twig', array(
 	'clients' => $clients,
 	'timezones' => DateTimeZone::listIdentifiers(),
@@ -26,3 +39,4 @@ $twig->display('install.config.html.twig', array(
 	'errors' => isset($errors) ? $errors : null,
 	'buttons' => next_buttons()
 ));
+

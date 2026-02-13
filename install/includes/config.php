@@ -2,22 +2,47 @@
 defined('MYAAC') or die('Direct access not allowed!');
 
 if(!isset($_SESSION['var_server_path'])) {
-	error($locale['step_database_error_config']);
-	$error = true;
+	// Check if in Docker mode and servers.json exists
+	$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
+	if ($isDocker && file_exists(BASE . 'config/servers.json')) {
+		$servers = json_decode(file_get_contents(BASE . 'config/servers.json'), true);
+		if (!empty($servers['servers'])) {
+			$firstServer = $servers['servers'][0];
+			$_SESSION['var_server_path'] = '/srv/servers/' . $firstServer['id'] . '/';
+		}
+	}
+	
+	if (!isset($_SESSION['var_server_path'])) {
+		error($locale['step_database_error_config']);
+		$error = true;
+	}
 }
 
 $config['server_path'] = $_SESSION['var_server_path'];
 // take care of trailing slash at the end
-if($config['server_path'][strlen($config['server_path']) - 1] != '/')
+if(isset($config['server_path']) && $config['server_path'][strlen($config['server_path']) - 1] != '/')
 	$config['server_path'] .= '/';
 
-if((!isset($error) || !$error) && !file_exists($config['server_path'] . 'config.lua')) {
+// Get actual config.lua path from servers.json if in Docker mode
+$configFileName = 'config.lua';
+$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
+if ($isDocker && file_exists(BASE . 'config/servers.json')) {
+	$servers = json_decode(file_get_contents(BASE . 'config/servers.json'), true);
+	if (!empty($servers['servers'])) {
+		$firstServer = $servers['servers'][0];
+		if (!empty($firstServer['config_path'])) {
+			$configFileName = $firstServer['config_path'];
+		}
+	}
+}
+
+if((!isset($error) || !$error) && isset($config['server_path']) && !file_exists($config['server_path'] . $configFileName)) {
 	error($locale['step_database_error_config']);
 	$error = true;
 }
 
 if(!isset($error) || !$error) {
-	$config['lua'] = load_config_lua($config['server_path'] . 'config.lua');
+	$config['lua'] = load_config_lua($config['server_path'] . $configFileName);
 	if(isset($config['lua']['sqlType'])) // tfs 0.3
 		$config['database_type'] = $config['lua']['sqlType'];
 	else if(isset($config['lua']['mysqlHost'])) // tfs 0.2/1.0

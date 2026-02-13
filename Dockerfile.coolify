@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     nodejs \
     npm \
+    openssh-client \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
         pdo \
@@ -34,6 +35,50 @@ RUN a2enmod rewrite
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# ==============================================================================
+# SETUP: Clone server repositories for multi-tenancy
+# ==============================================================================
+
+# Setup SSH for private repo access
+RUN mkdir -p /root/.ssh && \
+    echo "$MYAAC_CANARY_REPO_KEY" > /root/.ssh/id_ed25519 && \
+    chmod 600 /root/.ssh/id_ed25519 && \
+    echo "Host github.com" >> /root/.ssh/config && \
+    echo "    HostName github.com" >> /root/.ssh/config && \
+    echo "    User git" >> /root/.ssh/config && \
+    echo "    IdentityFile /root/.ssh/id_ed25519" >> /root/.ssh/config && \
+    echo "    StrictHostKeyChecking no" >> /root/.ssh/config && \
+    ssh-keyscan -t ed25519,ecdsa,rsa github.com >> /root/.ssh/known_hosts 2>/dev/null
+
+# Install jq for JSON parsing
+RUN apt-get update && apt-get install -y jq > /dev/null 2>&1 || true
+
+# Copy servers configuration
+COPY config/servers.json /tmp/servers.json
+
+# Clone each server repository with sparse checkout
+RUN if [ -f /tmp/servers.json ]; then \
+    cat /tmp/servers.json | jq -r '.servers[] | "\(.id)|\(.git_repo)|\(.git_branch)|\(.config_path)|\(.data_path)"' | while IFS='|' read -r id repo branch config_path data_path; do \
+        echo "Cloning server: $id (branch: $branch)"; \
+        git clone --depth=1 --branch "$branch" --sparse "$repo" "/srv/servers/$id" && \
+        cd "/srv/servers/$id" && \
+        git sparse-checkout set "$config_path" "$data_path" && \
+        echo "Done: $id"; \
+    done; \
+    rm -f /tmp/servers.json; \
+    fi
+
+# Set proper permissions for servers directory
+RUN chmod -R 755 /srv/servers && \
+    chown -R www-data:www-data /srv/servers || true
+
+# Mark as Docker environment
+ENV DOCKER_BUILD=1
+
+# ==============================================================================
+# END SETUP: Server repositories
+# ==============================================================================
 
 # Set working directory
 WORKDIR /var/www/html
