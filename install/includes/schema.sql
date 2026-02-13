@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS `myaac_admin_menu`
 	PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
 
+-- Default admin menu items
+INSERT IGNORE INTO `myaac_admin_menu` (`name`, `page`, `ordering`, `flags`, `enabled`) VALUES
+('Servers', 'servers', 100, 0, 1);
+
 CREATE TABLE IF NOT EXISTS `myaac_changelog`
 (
 	`id` int NOT NULL AUTO_INCREMENT,
@@ -258,4 +262,37 @@ CREATE TABLE IF NOT EXISTS `myaac_weapons`
 	`maglevel` int NOT NULL DEFAULT 0,
 	`vocations` varchar(100) NOT NULL DEFAULT '',
 	PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
+
+-- Multi-server support tables
+CREATE TABLE IF NOT EXISTS `myaac_servers`
+(
+	`id` int NOT NULL AUTO_INCREMENT,
+	`name` varchar(64) NOT NULL,
+	`display_name` varchar(128) NOT NULL DEFAULT '',
+	`is_default` tinyint NOT NULL DEFAULT 0,
+	`status` enum('online','offline','maintenance') NOT NULL DEFAULT 'online',
+	`created_at` int NOT NULL DEFAULT 0,
+	`updated_at` int NOT NULL DEFAULT 0,
+	PRIMARY KEY (`id`),
+	UNIQUE KEY `unique_server_name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `myaac_server_databases`
+(
+	`id` int NOT NULL AUTO_INCREMENT,
+	`server_id` int NOT NULL,
+	`database_host` varchar(255) DEFAULT NULL,
+	`database_port` int NOT NULL DEFAULT 3306,
+	`database_username` varchar(128) DEFAULT NULL,
+	`database_password` varchar(255) DEFAULT NULL,
+	`database_name` varchar(128) NOT NULL,
+	`server_path` varchar(512) DEFAULT NULL,
+	`config_path` varchar(512) NOT NULL DEFAULT 'config/config.lua',
+	`data_path` varchar(512) NOT NULL DEFAULT 'data/',
+	`git_repo` varchar(512) DEFAULT NULL,
+	`git_branch` varchar(128) NOT NULL DEFAULT 'main',
+	PRIMARY KEY (`id`),
+	KEY `fk_server_id` (`server_id`),
+	CONSTRAINT `fk_server_id` FOREIGN KEY (`server_id`) REFERENCES `myaac_servers`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
