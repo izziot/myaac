@@ -18,9 +18,8 @@ services:
       
       # MyAAC specific
       - MYAAC_INSTALL=${MYAAC_INSTALL:-false}
-      
-    ports:
-      - "80:80"
+    
+    # Note: No ports exposed - Coolify/Traefik handles routing automatically
     
     volumes:
       # Persist uploads and cache
