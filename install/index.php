@@ -112,6 +112,8 @@ if($step == 'database') {
 					// Create SSH config
 					$sshConfig = "Host github.com\n    HostName github.com\n    User git\n    IdentityFile {$sshDir}/id_rsa\n    StrictHostKeyChecking no\n";
 					file_put_contents($sshDir . '/config', $sshConfig);
+				}
+				
 				// Clone with sparse checkout
 				$cloneCommands = array();
 				$cloneCommands[] = "mkdir -p /srv/servers";
