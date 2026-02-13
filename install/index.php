@@ -181,11 +181,14 @@ $error = false;
 
 clearstatcache();
 if(is_writable(CACHE) && (MYAAC_OS != 'WINDOWS' || win_is_writable(CACHE))) {
-	if(!file_exists(BASE . 'install/ip.txt')) {
+	// Skip IP check when running in Docker
+	$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv') || strpos(getenv('HOSTNAME') ?: '', 'docker') !== false;
+	
+	if(!$isDocker && !file_exists(BASE . 'install/ip.txt')) {
 		$content = warning('AAC installation is disabled. To enable it make file <b>ip.txt</b> in install/ directory and put there your IP.<br/>
 		Your IP is:<br /><b>' . get_browser_real_ip() . '</b>', true);
 	}
-	else {
+	else if(!$isDocker) {
 		$file_content = trim(file_get_contents(BASE . 'install/ip.txt'));
 		$allow = false;
 		$listIP = preg_split('/\s+/', $file_content);
@@ -209,6 +212,15 @@ if(is_writable(CACHE) && (MYAAC_OS != 'WINDOWS' || win_is_writable(CACHE))) {
 			$content = ob_get_contents();
 			ob_end_clean();
 		}
+	}
+	else if($isDocker) {
+		// Running in Docker - skip IP check and proceed with installation
+		ob_start();
+
+		$step_id = array_search($step, $steps);
+		require 'steps/' . $step_id . '-' . $step . '.php';
+		$content = ob_get_contents();
+		ob_end_clean();
 	}
 }
 else {
