@@ -63,66 +63,92 @@ if($step == 'database') {
 	// Handle server configuration from UI - clone repository if needed
 	$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
 	
-	// Check if we need to clone a repository (Docker mode with git configuration)
-	if ($isDocker && !empty($_SESSION['var_git_repo']) && !empty($_SESSION['var_git_branch'])) {
-		$serverName = !empty($_SESSION['var_server_name']) ? $_SESSION['var_server_name'] : 'default';
-		$gitRepo = $_SESSION['var_git_repo'];
-		$gitBranch = $_SESSION['var_git_branch'];
-		$configPath = !empty($_SESSION['var_config_path']) ? $_SESSION['var_config_path'] : 'config/config.lua';
-		$dataPath = !empty($_SESSION['var_data_path']) ? $_SESSION['var_data_path'] : 'data/';
+	// Check if we need to clone repositories (Docker mode with git configuration)
+	// Support both new array format (var_servers) and legacy individual variables
+	$servers = $_SESSION['var_servers'] ?? [];
+	
+	// If no servers array, create from legacy individual variables for backward compatibility
+	if (empty($servers) && !empty($_SESSION['var_git_repo'])) {
+		$servers = [[
+			'name' => $_SESSION['var_server_name'] ?? 'default',
+			'git_repo' => $_SESSION['var_git_repo'],
+			'git_branch' => $_SESSION['var_git_branch'] ?? 'main',
+			'config_path' => $_SESSION['var_config_path'] ?? 'config/config.lua',
+			'data_path' => $_SESSION['var_data_path'] ?? 'data/'
+		]];
+	}
+	
+	// Clone each server repository
+	if ($isDocker && !empty($servers)) {
 		$sshKey = !empty($_SESSION['var_ssh_private_key']) ? $_SESSION['var_ssh_private_key'] : getenv('MYAAC_CANARY_REPO_KEY');
 		
-		$serverPath = '/srv/servers/' . $serverName . '/';
-		
-		// Check if we already cloned this server
-		if (!file_exists($serverPath . $configPath)) {
-			// Need to clone the repository
-			$cloneError = null;
+		foreach ($servers as $server) {
+			$serverName = !empty($server['name']) ? $server['name'] : 'default';
+			$gitRepo = !empty($server['git_repo']) ? $server['git_repo'] : '';
+			$gitBranch = !empty($server['git_branch']) ? $server['git_branch'] : 'main';
+			$configPath = !empty($server['config_path']) ? $server['config_path'] : 'config/config.lua';
+			$dataPath = !empty($server['data_path']) ? $server['data_path'] : 'data/';
 			
-			// Setup SSH key if provided
-			if (!empty($sshKey)) {
-				$sshDir = '/tmp/ssh_' . uniqid();
-				mkdir($sshDir, 0700, true);
-				file_put_contents($sshDir . '/id_rsa', $sshKey);
-				chmod($sshDir . '/id_rsa', 0600);
-				putenv('HOME=' . $sshDir);
+			if (empty($gitRepo)) {
+				continue;
+			}
+			
+			$serverPath = '/srv/servers/' . $serverName . '/';
+			
+			// Check if we already cloned this server
+			if (!file_exists($serverPath . $configPath)) {
+				// Need to clone the repository
+				$cloneError = null;
 				
-				// Create SSH config
-				$sshConfig = "Host github.com\n    HostName github.com\n    User git\n    IdentityFile {$sshDir}/id_rsa\n    StrictHostKeyChecking no\n";
-				file_put_contents($sshDir . '/config', $sshConfig);
-			}
-			
-			// Clone with sparse checkout
-			$cloneCommands = array();
-			$cloneCommands[] = "mkdir -p /srv/servers";
-			$cloneCommands[] = "git clone --depth=1 --branch '" . escapeshellcmd($gitBranch) . "' --sparse '" . escapeshellcmd($gitRepo) . "' " . escapeshellcmd($serverPath);
-			$cloneCommands[] = "cd " . escapeshellcmd($serverPath) . " && git sparse-checkout set " . escapeshellcmd($configPath) . " " . escapeshellcmd($dataPath);
-			
-			$fullCommand = implode(' && ', $cloneCommands);
-			
-			if (!empty($sshKey)) {
-				$fullCommand = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" ' . $fullCommand;
-			}
-			
-			$output = array();
-			$returnCode = 0;
-			exec($fullCommand . ' 2>&1', $output, $returnCode);
-			
-			// Cleanup SSH temp files
-			if (!empty($sshKey) && !empty($sshDir)) {
-				exec("rm -rf " . escapeshellcmd($sshDir));
-			}
-			
-			if ($returnCode !== 0 || !file_exists($serverPath . $configPath)) {
-				$cloneError = "Failed to clone repository. Output: " . implode("\n", $output);
-				error_log($cloneError);
+				// Setup SSH key if provided
+				if (!empty($sshKey)) {
+					$sshDir = '/tmp/ssh_' . uniqid();
+					mkdir($sshDir, 0700, true);
+					file_put_contents($sshDir . '/id_rsa', $sshKey);
+					chmod($sshDir . '/id_rsa', 0600);
+					putenv('HOME=' . $sshDir);
+					
+					// Create SSH config
+					$sshConfig = "Host github.com\n    HostName github.com\n    User git\n    IdentityFile {$sshDir}/id_rsa\n    StrictHostKeyChecking no\n";
+					file_put_contents($sshDir . '/config', $sshConfig);
+				}
+				
+				// Clone with sparse checkout
+				$cloneCommands = array();
+				$cloneCommands[] = "mkdir -p /srv/servers";
+				$cloneCommands[] = "git clone --depth=1 --branch '" . escapeshellcmd($gitBranch) . "' --sparse '" . escapeshellcmd($gitRepo) . "' " . escapeshellcmd($serverPath);
+				$cloneCommands[] = "cd " . escapeshellcmd($serverPath) . " && git sparse-checkout set " . escapeshellcmd($configPath) . " " . escapeshellcmd($dataPath);
+				
+				$fullCommand = implode(' && ', $cloneCommands);
+				
+				if (!empty($sshKey)) {
+					$fullCommand = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" ' . $fullCommand;
+				}
+				
+				$output = array();
+				$returnCode = 0;
+				exec($fullCommand . ' 2>&1', $output, $returnCode);
+				
+				// Cleanup SSH temp files
+				if (!empty($sshKey) && !empty($sshDir)) {
+					exec("rm -rf " . escapeshellcmd($sshDir));
+				}
+				
+				if ($returnCode !== 0 || !file_exists($serverPath . $configPath)) {
+					$cloneError = "Failed to clone repository for server '{$serverName}'. Output: " . implode("\n", $output);
+					error_log($cloneError);
+				} else {
+					// Set session server_path to the cloned location (use first server for primary)
+					if (!isset($_SESSION['var_server_path'])) {
+						$_SESSION['var_server_path'] = $serverPath;
+					}
+				}
 			} else {
-				// Set session server_path to the cloned location
-				$_SESSION['var_server_path'] = $serverPath;
+				// Already cloned, use existing
+				if (!isset($_SESSION['var_server_path'])) {
+					$_SESSION['var_server_path'] = $serverPath;
+				}
 			}
-		} else {
-			// Already cloned, use existing
-			$_SESSION['var_server_path'] = $serverPath;
 		}
 	}
 	
