@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  myaac:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+    container_name: myaac-web
+    restart: unless-stopped
+    
+    environment:
+      # Database connection (from Coolify environment)
+      - MYSQL_HOST=${MYSQL_HOST:-wws0cswsokg0ok88w48g004c}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-default}
+      - MYSQL_USER=${MYSQL_USER:-mariadb}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      
+      # MyAAC specific
+      - MYAAC_INSTALL=${MYAAC_INSTALL:-false}
+      
+    ports:
+      - "80:80"
+    
+    volumes:
+      # Persist uploads and cache
+      - myaac-uploads:/var/www/html/images
+      - myaac-cache:/var/www/html/system/cache
+      - myaac-config:/var/www/html/config.local.php
+      
+    networks:
+      - coolify
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  myaac-uploads:
+  myaac-cache:
+  myaac-config:
+
+networks:
+  coolify:
+    external: true

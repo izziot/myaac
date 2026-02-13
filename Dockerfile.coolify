@@ -1,0 +1,88 @@
+# MyAAC Dockerfile for Coolify
+# Based on PHP 8.2 Apache with required extensions
+
+FROM php:8.2-apache
+
+# Install system dependencies and PHP extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpng-dev \
+    libzip-dev \
+    libxml2-dev \
+    libonig-dev \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
+    libpng-dev \
+    git \
+    unzip \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) \
+        pdo \
+        pdo_mysql \
+        mysqli \
+        gd \
+        zip \
+        xml \
+        mbstring \
+        opcache \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Enable Apache mod_rewrite
+RUN a2enmod rewrite
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Set working directory
+WORKDIR /var/www/html
+
+# Copy application files
+COPY . /var/www/html/
+
+# Copy .htaccess.dist to .htaccess if .htaccess doesn't exist
+RUN if [ ! -f /var/www/html/.htaccess ] && [ -f /var/www/html/.htaccess.dist ]; then \
+        cp /var/www/html/.htaccess.dist /var/www/html/.htaccess; \
+    fi
+
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader --no-interaction
+
+# Set proper permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html \
+    && chmod -R 775 /var/www/html/system/cache \
+    && chmod -R 775 /var/www/html/images/guilds \
+    && chmod -R 775 /var/www/html/images/houses \
+    && chmod -R 775 /var/www/html/images/gallery
+
+# Create config.local.php placeholder if it doesn't exist
+RUN touch /var/www/html/config.local.php \
+    && chown www-data:www-data /var/www/html/config.local.php \
+    && chmod 660 /var/www/html/config.local.php
+
+# Configure Apache
+RUN echo 'ServerName localhost' >> /etc/apache2/apache2.conf
+
+# Copy custom Apache config
+COPY <<EOF /etc/apache2/sites-available/000-default.conf
+<VirtualHost *:80>
+    DocumentRoot /var/www/html
+    <Directory /var/www/html>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+EOF
+
+# Expose port 80
+EXPOSE 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/ || exit 1
+
+# Start Apache
+CMD ["apache2-foreground"]
