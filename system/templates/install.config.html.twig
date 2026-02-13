@@ -106,105 +106,125 @@
 {# JavaScript for dynamic server management #}
 {# ============================================================================== #}
 <script>
-let serverCount = 0;
-const defaultServers = {{ servers|json_encode|raw }};
+(function() {
+'use strict';
+
+var serverCount = 0;
 
 function createServerFields(index, serverData) {
-	const isFirst = index === 0;
-	const serverName = serverData?.name || (index === 0 ? 'sovereign' : '');
-	const gitRepo = serverData?.git_repo || 'git@github.com:izziot/canary.git';
-	const gitBranch = serverData?.git_branch || (index === 0 ? 'test/sovereign' : 'main');
-	const configPath = serverData?.config_path || 'config/config.lua';
-	const dataPath = serverData?.data_path || 'data/';
-	
-	const html = `
-		<div class="server-entry card mb-3" id="server-${index}">
-			<div class="card-header ${isFirst ? 'bg-success' : 'bg-light'} text-${isFirst ? 'white' : 'dark'} d-flex justify-content-between align-items-center">
-				<strong>${isFirst ? '★ ' : ''}${locale.step_config_server|default('Server')} #${index + 1}${isFirst ? ' (Primary - used for installation)' : ''}</strong>
-				${!isFirst ? '<button type="button" class="btn btn-sm btn-danger" onclick="removeServer(' + index + ')">× Remove</button>' : ''}
-			</div>
-			<div class="card-body">
-				<div class="row">
-					<div class="col-md-6">
-						<div class="form-group mb-3">
-							<label>${locale.step_config_server_name|default('Server Name')} *</label>
-							<input type="text" class="form-control" name="vars[servers][${index}][name]" 
-								value="${serverName}" required placeholder="ex: Sovereign, World2"/>
-						</div>
-					</div>
-					<div class="col-md-6">
-						<div class="form-group mb-3">
-							<label>${locale.step_config_git_repo|default('Git Repository URL')} *</label>
-							<input type="text" class="form-control" name="vars[servers][${index}][git_repo]" 
-								value="${gitRepo}" required placeholder="git@github.com:user/repo.git"/>
-						</div>
-					</div>
-				</div>
-				<div class="row">
-					<div class="col-md-6">
-						<div class="form-group mb-3">
-							<label>${locale.step_config_git_branch|default('Git Branch')} *</label>
-							<input type="text" class="form-control" name="vars[servers][${index}][git_branch]" 
-								value="${gitBranch}" required placeholder="ex: test/sovereign, main"/>
-						</div>
-					</div>
-					<div class="col-md-3">
-						<div class="form-group mb-3">
-							<label>${locale.step_config_config_path|default('Config Path')}</label>
-							<input type="text" class="form-control" name="vars[servers][${index}][config_path]" 
-								value="${configPath}" placeholder="config/config.lua"/>
-						</div>
-					</div>
-					<div class="col-md-3">
-						<div class="form-group mb-3">
-							<label>${locale.step_config_data_path|default('Data Path')}</label>
-							<input type="text" class="form-control" name="vars[servers][${index}][data_path]" 
-								value="${dataPath}" placeholder="data/"/>
-						</div>
-					</div>
-				</div>
-			</div>
-		</div>
-	`;
-	return html;
+    var isFirst = (index === 0);
+    var serverName = (serverData && serverData.name) ? serverData.name : '';
+    var gitRepo = (serverData && serverData.git_repo) ? serverData.git_repo : 'git@github.com:izziot/canary.git';
+    var gitBranch = (serverData && serverData.git_branch) ? serverData.git_branch : 'main';
+    var configPath = (serverData && serverData.config_path) ? serverData.config_path : 'config/config.lua';
+    var dataPath = (serverData && serverData.data_path) ? serverData.data_path : 'data/';
+    
+    if (index === 0 && !serverName) {
+        serverName = 'sovereign';
+    }
+    if (index === 0 && !gitBranch) {
+        gitBranch = 'test/sovereign';
+    }
+    
+    var html = '<div class="server-entry card mb-3" id="server-' + index + '">';
+    html += '<div class="card-header ' + (isFirst ? 'bg-success' : 'bg-light') + ' text-' + (isFirst ? 'white' : 'dark') + ' d-flex justify-content-between align-items-center">';
+    html += '<strong>' + (isFirst ? '★ ' : '') + 'Server #' + (index + 1) + (isFirst ? ' (Primary - used for installation)' : '') + '</strong>';
+    if (!isFirst) {
+        html += '<button type="button" class="btn btn-sm btn-danger" onclick="removeServer(' + index + ')">× Remove</button>';
+    }
+    html += '</div>';
+    html += '<div class="card-body">';
+    html += '<div class="row">';
+    html += '<div class="col-md-6">';
+    html += '<div class="form-group mb-3">';
+    html += '<label>Server Name *</label>';
+    html += '<input type="text" class="form-control" name="vars[servers][' + index + '][name]" value="' + serverName + '" required placeholder="ex: Sovereign, World2"/>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="col-md-6">';
+    html += '<div class="form-group mb-3">';
+    html += '<label>Git Repository URL *</label>';
+    html += '<input type="text" class="form-control" name="vars[servers][' + index + '][git_repo]" value="' + gitRepo + '" required placeholder="git@github.com:user/repo.git"/>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="row">';
+    html += '<div class="col-md-6">';
+    html += '<div class="form-group mb-3">';
+    html += '<label>Git Branch *</label>';
+    html += '<input type="text" class="form-control" name="vars[servers][' + index + '][git_branch]" value="' + gitBranch + '" required placeholder="ex: test/sovereign, main"/>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="col-md-3">';
+    html += '<div class="form-group mb-3">';
+    html += '<label>Config Path</label>';
+    html += '<input type="text" class="form-control" name="vars[servers][' + index + '][config_path]" value="' + configPath + '" placeholder="config/config.lua"/>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="col-md-3">';
+    html += '<div class="form-group mb-3">';
+    html += '<label>Data Path</label>';
+    html += '<input type="text" class="form-control" name="vars[servers][' + index + '][data_path]" value="' + dataPath + '" placeholder="data/"/>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+    
+    return html;
 }
 
-function addServer() {
-	const container = document.getElementById('servers-container');
-	container.insertAdjacentHTML('beforeend', createServerFields(serverCount, null));
-	serverCount++;
-}
+window.addServer = function() {
+    var container = document.getElementById('servers-container');
+    if (container) {
+        container.insertAdjacentHTML('beforeend', createServerFields(serverCount, null));
+        serverCount++;
+    } else {
+        console.error('servers-container not found');
+    }
+};
 
-function removeServer(index) {
-	const serverDiv = document.getElementById('server-' + index);
-	if (serverDiv) {
-		serverDiv.remove();
-	}
-}
+window.removeServer = function(index) {
+    var serverDiv = document.getElementById('server-' + index);
+    if (serverDiv) {
+        serverDiv.remove();
+    }
+};
 
 function initServers() {
-	const container = document.getElementById('servers-container');
-	
-	// If we have servers in session, render them
-	{% if session['var_servers'] is defined and session['var_servers'] is not empty %}
-		const savedServers = {{ session['var_servers']|json_encode|raw }};
-		if (savedServers && savedServers.length > 0) {
-			savedServers.forEach((server, index) => {
-				container.insertAdjacentHTML('beforeend', createServerFields(index, server));
-			});
-			serverCount = savedServers.length;
-		} else {
-			// No servers saved, add first one
-			container.insertAdjacentHTML('beforeend', createServerFields(0, null));
-			serverCount = 1;
-		}
-	{% else %}
-		// Default: add first server
-		container.insertAdjacentHTML('beforeend', createServerFields(0, null));
-		serverCount = 1;
-	{% endif %}
+    var container = document.getElementById('servers-container');
+    if (!container) {
+        console.error('servers-container not found');
+        return;
+    }
+    
+    try {
+        var savedServers = null;
+        {% if session['var_servers'] is defined and session['var_servers'] is not empty %}
+        savedServers = {{ session['var_servers']|json_encode|raw }};
+        {% endif %}
+        
+        if (savedServers && savedServers.length > 0) {
+            for (var i = 0; i < savedServers.length; i++) {
+                container.insertAdjacentHTML('beforeend', createServerFields(i, savedServers[i]));
+            }
+            serverCount = savedServers.length;
+        } else {
+            container.insertAdjacentHTML('beforeend', createServerFields(0, null));
+            serverCount = 1;
+        }
+    } catch (e) {
+        console.error('Error initializing servers:', e);
+        container.insertAdjacentHTML('beforeend', createServerFields(0, null));
+        serverCount = 1;
+    }
 }
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', initServers);
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initServers);
+} else {
+    initServers();
+}
+
+})();
 </script>
