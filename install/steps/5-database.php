@@ -31,10 +31,23 @@ if(!$error) {
 					$value .= '/';
 			}
 
-			if(!in_array($key, ['var_usage', 'var_date_timezone', 'var_client', 'var_account', 'var_account_id', 'var_password', 'var_password_confirm', 'var_step', 'var_email', 'var_player_name'], true)) {
+			// Exclude vars that should not be saved to config
+			$excludedVars = [
+				'var_usage', 'var_date_timezone', 'var_client', 
+				'var_account', 'var_account_id', 'var_password', 
+				'var_password_confirm', 'var_step', 'var_email', 
+				'var_player_name', 'var_servers', 'var_ssh_private_key'
+			];
+			
+			if(!in_array($key, $excludedVars, true)) {
 				$configToSave[str_replace('var_', '', $key)] = $value;
 			}
 		}
+	}
+	
+	// Save servers array as JSON
+	if (isset($_SESSION['var_servers']) && is_array($_SESSION['var_servers'])) {
+		$configToSave['servers'] = json_encode($_SESSION['var_servers']);
 	}
 
 	$configToSave['gzip_output'] = false;

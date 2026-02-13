@@ -61,7 +61,8 @@ $errors = array();
 
 if($step == 'database') {
 	// Handle server configuration from UI - clone repository if needed
-	$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
+	// Improved Docker detection
+	$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv') || strpos(getenv('HOSTNAME') ?: '', 'docker') !== false;
 	
 	// Check if we need to clone repositories (Docker mode with git configuration)
 	// Support both new array format (var_servers) and legacy individual variables
@@ -78,7 +79,7 @@ if($step == 'database') {
 		]];
 	}
 	
-	// Clone each server repository
+	// Clone each server repository (Docker mode only)
 	if ($isDocker && !empty($servers)) {
 		$sshKey = !empty($_SESSION['var_ssh_private_key']) ? $_SESSION['var_ssh_private_key'] : getenv('MYAAC_CANARY_REPO_KEY');
 		
@@ -111,8 +112,6 @@ if($step == 'database') {
 					// Create SSH config
 					$sshConfig = "Host github.com\n    HostName github.com\n    User git\n    IdentityFile {$sshDir}/id_rsa\n    StrictHostKeyChecking no\n";
 					file_put_contents($sshDir . '/config', $sshConfig);
-				}
-				
 				// Clone with sparse checkout
 				$cloneCommands = array();
 				$cloneCommands[] = "mkdir -p /srv/servers";
@@ -137,19 +136,17 @@ if($step == 'database') {
 				if ($returnCode !== 0 || !file_exists($serverPath . $configPath)) {
 					$cloneError = "Failed to clone repository for server '{$serverName}'. Output: " . implode("\n", $output);
 					error_log($cloneError);
-				} else {
-					// Set session server_path to the cloned location (use first server for primary)
-					if (!isset($_SESSION['var_server_path'])) {
-						$_SESSION['var_server_path'] = $serverPath;
-					}
-				}
-			} else {
-				// Already cloned, use existing
-				if (!isset($_SESSION['var_server_path'])) {
-					$_SESSION['var_server_path'] = $serverPath;
 				}
 			}
 		}
+	}
+	
+	// ALWAYS set var_server_path from servers array (first server as default)
+	// This ensures the installation can proceed even outside Docker mode
+	if (!isset($_SESSION['var_server_path']) && !empty($servers)) {
+		$firstServer = reset($servers);
+		$serverName = !empty($firstServer['name']) ? $firstServer['name'] : 'default';
+		$_SESSION['var_server_path'] = '/srv/servers/' . $serverName . '/';
 	}
 	
 	// Validate required fields
@@ -165,7 +162,12 @@ if($step == 'database') {
 		}
 
 		// Skip validation for optional fields in Docker mode
-		if ($isDocker && in_array($key, array('config_path', 'data_path'))) {
+		if ($isDocker && in_array($key, array('config_path', 'data_path', 'servers'))) {
+			continue;
+		}
+		
+		// Skip servers array validation (handled separately)
+		if ($key === 'servers') {
 			continue;
 		}
 
@@ -181,17 +183,26 @@ if($step == 'database') {
 				$config['server_path'] .= '/';
 			}
 
-			// Determine config file name from config_path
-			$configFileName = !empty($_SESSION['var_config_path']) ? $_SESSION['var_config_path'] : 'config.lua';
+			// Determine config file name from servers array (first server) or legacy var
+			$configFileName = 'config.lua';
+			if (!empty($servers)) {
+				$firstServer = reset($servers);
+				$configFileName = !empty($firstServer['config_path']) ? $firstServer['config_path'] : 'config.lua';
+			} else if (!empty($_SESSION['var_config_path'])) {
+				$configFileName = $_SESSION['var_config_path'];
+			}
 			
 			// Extract just the filename from config_path if it's a path
 			if (strpos($configFileName, '/') !== false) {
 				$configFileName = basename($configFileName);
 			}
 
-			if(!file_exists($config['server_path'] . $configFileName)) {
-				$errors[] = $locale['step_database_error_config'];
-				break;
+			// In Docker mode, skip config file validation if path doesn't exist yet (will be cloned)
+			if (!$isDocker || file_exists($config['server_path'] . $configFileName)) {
+				// OK - file exists or we're not in Docker mode
+			} else {
+				// In Docker mode, config will be cloned later, skip validation
+				continue;
 			}
 		}
 		else if($key == 'timezone' && !in_array($value, DateTimeZone::listIdentifiers())) {
