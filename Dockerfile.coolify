@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     git \
     unzip \
+    nodejs \
+    npm \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
         pdo \
@@ -43,6 +45,9 @@ COPY . /var/www/html/
 RUN if [ ! -f /var/www/html/.htaccess ] && [ -f /var/www/html/.htaccess.dist ]; then \
         cp /var/www/html/.htaccess.dist /var/www/html/.htaccess; \
     fi
+
+# Install Node.js dependencies (for tools/ext libraries)
+RUN cd /var/www/html && npm install
 
 # Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader --no-interaction
