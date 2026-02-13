@@ -94,6 +94,24 @@ if($step == 'database') {
 	if ($isInstallMode && !empty($servers)) {
 		$sshKey = !empty($_SESSION['var_ssh_private_key']) ? $_SESSION['var_ssh_private_key'] : getenv('MYAAC_CANARY_REPO_KEY');
 		
+		// Debug: Check if SSH key is available
+		if (empty($sshKey)) {
+			$cloneErrors[] = "SSH key not found. Check MYAAC_CANARY_REPO_KEY environment variable or fill SSH Private Key field.";
+			error_log("DEBUG: SSH key is empty. Session var_ssh_private_key: " . (empty($_SESSION['var_ssh_private_key']) ? 'empty' : 'set'));
+			error_log("DEBUG: MYAAC_CANARY_REPO_KEY env: " . (getenv('MYAAC_CANARY_REPO_KEY') ?: 'not set'));
+		} else {
+			error_log("DEBUG: SSH key found, length: " . strlen($sshKey));
+		}
+		
+		// Debug: Check if git is available
+		exec('git --version 2>&1', $gitVersionOutput, $gitVersionReturn);
+		if ($gitVersionReturn !== 0) {
+			$cloneErrors[] = "Git is not available in the system.";
+			error_log("DEBUG: Git not found. Return code: " . $gitVersionReturn);
+		} else {
+			error_log("DEBUG: Git version: " . implode(" ", $gitVersionOutput));
+		}
+		
 		foreach ($servers as $server) {
 			$serverName = !empty($server['name']) ? $server['name'] : 'default';
 			$gitRepo = !empty($server['git_repo']) ? $server['git_repo'] : '';
@@ -102,8 +120,11 @@ if($step == 'database') {
 			$dataPath = !empty($server['data_path']) ? $server['data_path'] : 'data/';
 			
 			if (empty($gitRepo)) {
+				$cloneErrors[] = "Git repository URL is empty for server '{$serverName}'.";
 				continue;
 			}
+			
+			error_log("DEBUG: Cloning server '{$serverName}' - Repo: {$gitRepo}, Branch: {$gitBranch}, Config: {$configPath}, Data: {$dataPath}");
 			
 			$serverPath = '/srv/servers/' . $serverName . '/';
 			
@@ -123,34 +144,48 @@ if($step == 'database') {
 					// Create SSH config
 					$sshConfig = "Host github.com\n    HostName github.com\n    User git\n    IdentityFile {$sshDir}/id_rsa\n    StrictHostKeyChecking no\n";
 					file_put_contents($sshDir . '/config', $sshConfig);
+					
+					error_log("DEBUG: SSH key setup complete in {$sshDir}");
+				} else {
+					error_log("DEBUG: No SSH key, trying without authentication");
 				}
 				
-				// Clone with sparse checkout
+				// Clone with sparse checkout - using verbose to see more output
 				$cloneCommands = array();
 				$cloneCommands[] = "mkdir -p /srv/servers";
-				$cloneCommands[] = "git clone --depth=1 --branch '" . escapeshellcmd($gitBranch) . "' --sparse '" . escapeshellcmd($gitRepo) . "' " . escapeshellcmd($serverPath);
-				$cloneCommands[] = "cd " . escapeshellcmd($serverPath) . " && git sparse-checkout set " . escapeshellcmd($configPath) . " " . escapeshellcmd($dataPath);
+				$cloneCommands[] = "git clone --depth=1 --branch \"" . $gitBranch . "\" --sparse \"" . $gitRepo . "\" " . escapeshellcmd($serverPath) . " 2>&1";
+				$cloneCommands[] = "cd " . escapeshellcmd($serverPath) . " && git sparse-checkout set --verbose " . escapeshellcmd($configPath) . " " . escapeshellcmd($dataPath) . " 2>&1";
 				
 				$fullCommand = implode(' && ', $cloneCommands);
 				
 				if (!empty($sshKey)) {
-					$fullCommand = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" ' . $fullCommand;
+					$fullCommand = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -v" ' . $fullCommand;
 				}
+				
+				error_log("DEBUG: Full clone command: " . $fullCommand);
 				
 				$output = array();
 				$returnCode = 0;
 				exec($fullCommand . ' 2>&1', $output, $returnCode);
+				
+				error_log("DEBUG: Clone output:\n" . implode("\n", $output));
+				error_log("DEBUG: Clone return code: " . $returnCode);
 				
 				// Cleanup SSH temp files
 				if (!empty($sshKey) && !empty($sshDir)) {
 					exec("rm -rf " . escapeshellcmd($sshDir));
 				}
 				
-				if ($returnCode !== 0 || !file_exists($serverPath . $configPath)) {
-					$cloneError = "Failed to clone repository for server '{$serverName}'. Output: " . implode("\n", $output);
+				// Verify files exist after clone
+				if (!file_exists($serverPath . $configPath)) {
+					$cloneError = "Failed to clone repository for server '{$serverName}'. Return code: {$returnCode}. Output:\n" . implode("\n", $output);
 					$cloneErrors[] = $cloneError;
-					error_log($cloneError);
+					error_log("ERROR: " . $cloneError);
+				} else {
+					error_log("DEBUG: Successfully cloned config file to " . $serverPath . $configPath);
 				}
+			} else {
+				error_log("DEBUG: Server '{$serverName}' already cloned, skipping");
 			}
 		}
 	}
