@@ -21,6 +21,14 @@ services:
     
     # Note: No ports exposed - Coolify/Traefik handles routing automatically
     
+    labels:
+      # Traefik routing configuration for custom domain
+      - "traefik.enable=true"
+      - "traefik.http.routers.myaac.rule=Host(`izziot.izzispark.cloud`)"
+      - "traefik.http.routers.myaac.entrypoints=https"
+      - "traefik.http.routers.myaac.tls.certresolver=letsencrypt"
+      - "traefik.http.services.myaac.loadbalancer.server.port=80"
+    
     volumes:
       # Persist uploads and cache
       - myaac-uploads:/var/www/html/images
