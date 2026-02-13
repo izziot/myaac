@@ -2,20 +2,8 @@
 defined('MYAAC') or die('Direct access not allowed!');
 
 if(!isset($_SESSION['var_server_path'])) {
-	// Check if in Docker mode and servers.json exists
-	$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
-	if ($isDocker && file_exists(BASE . 'config/servers.json')) {
-		$servers = json_decode(file_get_contents(BASE . 'config/servers.json'), true);
-		if (!empty($servers['servers'])) {
-			$firstServer = $servers['servers'][0];
-			$_SESSION['var_server_path'] = '/srv/servers/' . $firstServer['id'] . '/';
-		}
-	}
-	
-	if (!isset($_SESSION['var_server_path'])) {
-		error($locale['step_database_error_config']);
-		$error = true;
-	}
+	error($locale['step_database_error_config']);
+	$error = true;
 }
 
 $config['server_path'] = $_SESSION['var_server_path'];
@@ -23,21 +11,15 @@ $config['server_path'] = $_SESSION['var_server_path'];
 if(isset($config['server_path']) && $config['server_path'][strlen($config['server_path']) - 1] != '/')
 	$config['server_path'] .= '/';
 
-// Get actual config.lua path from servers.json if in Docker mode
+// Get config filename from session (set during clone process in index.php)
 $configFileName = 'config.lua';
-$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
-if ($isDocker && file_exists(BASE . 'config/servers.json')) {
-	$servers = json_decode(file_get_contents(BASE . 'config/servers.json'), true);
-	if (!empty($servers['servers'])) {
-		$firstServer = $servers['servers'][0];
-		if (!empty($firstServer['config_path'])) {
-			$configFileName = $firstServer['config_path'];
-		}
-	}
+if (!empty($_SESSION['var_config_path'])) {
+	// Extract just the filename from the path (e.g., config/config.sovereign.lua -> config.sovereign.lua)
+	$configFileName = basename($_SESSION['var_config_path']);
 }
 
 if((!isset($error) || !$error) && isset($config['server_path']) && !file_exists($config['server_path'] . $configFileName)) {
-	error($locale['step_database_error_config']);
+	error($locale['step_database_error_config'] . ' Looking for: ' . $config['server_path'] . $configFileName);
 	$error = true;
 }
 
@@ -61,8 +43,8 @@ if(!isset($error) || !$error) {
 		$error = true;
 	}
 	else if($config['database_type'] != 'mysql') {
-		$locale['step_database_error_only_mysql'] = str_replace('$DATABASE_TYPE$', '<b>' . $config['database_type'] . '</b>', $locale['step_database_error_only_mysql']);
-		error($locale['step_database_error_only_mysql']);
+		$locale['step_config_server_path_error_only_mysql'] = str_replace('$DATABASE_TYPE$', '<b>' . $config['database_type'] . '</b>', $locale['step_config_server_path_error_only_mysql'] ?? 'Only MySQL/MariaDB is supported. Your OTS uses: $DATABASE_TYPE$');
+		error($locale['step_config_server_path_error_only_mysql']);
 		$error = true;
 	}
 }

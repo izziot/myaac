@@ -60,6 +60,73 @@ $install_status['step'] = $step;
 $errors = array();
 
 if($step == 'database') {
+	// Handle server configuration from UI - clone repository if needed
+	$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
+	
+	// Check if we need to clone a repository (Docker mode with git configuration)
+	if ($isDocker && !empty($_SESSION['var_git_repo']) && !empty($_SESSION['var_git_branch'])) {
+		$serverName = !empty($_SESSION['var_server_name']) ? $_SESSION['var_server_name'] : 'default';
+		$gitRepo = $_SESSION['var_git_repo'];
+		$gitBranch = $_SESSION['var_git_branch'];
+		$configPath = !empty($_SESSION['var_config_path']) ? $_SESSION['var_config_path'] : 'config/config.lua';
+		$dataPath = !empty($_SESSION['var_data_path']) ? $_SESSION['var_data_path'] : 'data/';
+		$sshKey = !empty($_SESSION['var_ssh_private_key']) ? $_SESSION['var_ssh_private_key'] : getenv('MYAAC_CANARY_REPO_KEY');
+		
+		$serverPath = '/srv/servers/' . $serverName . '/';
+		
+		// Check if we already cloned this server
+		if (!file_exists($serverPath . $configPath)) {
+			// Need to clone the repository
+			$cloneError = null;
+			
+			// Setup SSH key if provided
+			if (!empty($sshKey)) {
+				$sshDir = '/tmp/ssh_' . uniqid();
+				mkdir($sshDir, 0700, true);
+				file_put_contents($sshDir . '/id_rsa', $sshKey);
+				chmod($sshDir . '/id_rsa', 0600);
+				putenv('HOME=' . $sshDir);
+				
+				// Create SSH config
+				$sshConfig = "Host github.com\n    HostName github.com\n    User git\n    IdentityFile {$sshDir}/id_rsa\n    StrictHostKeyChecking no\n";
+				file_put_contents($sshDir . '/config', $sshConfig);
+			}
+			
+			// Clone with sparse checkout
+			$cloneCommands = array();
+			$cloneCommands[] = "mkdir -p /srv/servers";
+			$cloneCommands[] = "git clone --depth=1 --branch '" . escapeshellcmd($gitBranch) . "' --sparse '" . escapeshellcmd($gitRepo) . "' " . escapeshellcmd($serverPath);
+			$cloneCommands[] = "cd " . escapeshellcmd($serverPath) . " && git sparse-checkout set " . escapeshellcmd($configPath) . " " . escapeshellcmd($dataPath);
+			
+			$fullCommand = implode(' && ', $cloneCommands);
+			
+			if (!empty($sshKey)) {
+				$fullCommand = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" ' . $fullCommand;
+			}
+			
+			$output = array();
+			$returnCode = 0;
+			exec($fullCommand . ' 2>&1', $output, $returnCode);
+			
+			// Cleanup SSH temp files
+			if (!empty($sshKey) && !empty($sshDir)) {
+				exec("rm -rf " . escapeshellcmd($sshDir));
+			}
+			
+			if ($returnCode !== 0 || !file_exists($serverPath . $configPath)) {
+				$cloneError = "Failed to clone repository. Output: " . implode("\n", $output);
+				error_log($cloneError);
+			} else {
+				// Set session server_path to the cloned location
+				$_SESSION['var_server_path'] = $serverPath;
+			}
+		} else {
+			// Already cloned, use existing
+			$_SESSION['var_server_path'] = $serverPath;
+		}
+	}
+	
+	// Validate required fields
 	foreach($_SESSION as $key => $value) {
 		if(strpos($key, 'var_') === false) {
 			continue;
@@ -67,7 +134,12 @@ if($step == 'database') {
 
 		$key = str_replace('var_', '', $key);
 
-		if(in_array($key, array('account', 'account_id', 'password', 'password_confirm', 'email', 'player_name'))) {
+		if(in_array($key, array('account', 'account_id', 'password', 'password_confirm', 'email', 'player_name', 'ssh_private_key'))) {
+			continue;
+		}
+
+		// Skip validation for optional fields in Docker mode
+		if ($isDocker && in_array($key, array('config_path', 'data_path'))) {
 			continue;
 		}
 
@@ -83,17 +155,12 @@ if($step == 'database') {
 				$config['server_path'] .= '/';
 			}
 
-			// Check for custom config.lua path from servers.json in Docker mode
-			$configFileName = 'config.lua';
-			$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
-			if ($isDocker && file_exists(BASE . 'config/servers.json')) {
-				$servers = json_decode(file_get_contents(BASE . 'config/servers.json'), true);
-				if (!empty($servers['servers'])) {
-					$firstServer = $servers['servers'][0];
-					if (!empty($firstServer['config_path'])) {
-						$configFileName = $firstServer['config_path'];
-					}
-				}
+			// Determine config file name from config_path
+			$configFileName = !empty($_SESSION['var_config_path']) ? $_SESSION['var_config_path'] : 'config.lua';
+			
+			// Extract just the filename from config_path if it's a path
+			if (strpos($configFileName, '/') !== false) {
+				$configFileName = basename($configFileName);
 			}
 
 			if(!file_exists($config['server_path'] . $configFileName)) {

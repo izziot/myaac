@@ -9,39 +9,111 @@
 <form action="{{ constant('BASE_URL') }}install/" method="post" autocomplete="off">
 	<input type="hidden" name="step" id="step" value="database" />
 
-	{% for value in ['site_url', 'server_path'] %}
-	<div class="form-group mb-2">
-		<label for="vars_{{ value }}">{{ locale['step_config_' ~ value]  }}</label>
-		<input class="form-control" type="{% if value == 'mail_admin' %}email{% else %}text{% endif %}" name="vars[{{ value }}]" id="vars_{{ value }}"{% if session['var_' ~ value] is not null %} value="{{ session['var_' ~ value] }}"{% endif %}/>
-		<small class="form-text text-muted">{{ locale['step_config_' ~ value ~ '_desc'] }}</small>
-	</div>
-	{% endfor %}
+	<div class="card mb-4">
+		<div class="card-header bg-primary text-white">
+			<h5 class="mb-0">{{ locale.step_config_server_title|default('Server Configuration') }}</h5>
+		</div>
+		<div class="card-body">
+			<p class="text-muted">{{ locale.step_config_server_desc|default('Configure your game server repository for multi-tenancy support.') }}</p>
+			
+			<div class="form-group mb-3">
+				<label for="vars_server_name">{{ locale.step_config_server_name|default('Server Name') }} *</label>
+				<input class="form-control" type="text" name="vars[server_name]" id="vars_server_name" 
+					value="{{ session['var_server_name']|default('sovereign') }}" required
+					placeholder="{{ locale.step_config_server_name_placeholder|default('ex: Sovereign, World2, etc') }}"/>
+				<small class="form-text text-muted">{{ locale.step_config_server_name_desc|default('Unique identifier name for this server.') }}</small>
+			</div>
 
-	<div class="form-group mb-2">
-		<label for="vars_date_timezone">{{ locale.step_config_timezone }}</label>
-		<select class="form-control" name="vars[date_timezone]" id="vars_date_timezone">
-			{% for timezone in timezones %}
-			<option value="{{ timezone }}"{% if (session['var_date_timezone'] is not null and session['var_date_timezone'] == timezone) or (session['var_date_timezone'] is null and timezone == 'Europe/Warsaw') %} selected{% endif %}>{{ timezone }}</option>
-			{% endfor %}
-		</select>
-		<small class="form-text text-muted">{{ locale.step_config_timezone_desc }}</small>
+			<div class="form-group mb-3">
+				<label for="vars_git_repo">{{ locale.step_config_git_repo|default('Git Repository URL') }} *</label>
+				<input class="form-control" type="text" name="vars[git_repo]" id="vars_git_repo" 
+					value="{{ session['var_git_repo']|default('git@github.com:izziot/canary.git') }}" required
+					placeholder="{{ locale.step_config_git_repo_placeholder|default('git@github.com:user/repo.git or https://github.com/user/repo.git') }}"/>
+				<small class="form-text text-muted">{{ locale.step_config_git_repo_desc|default('Full Git repository URL (SSH or HTTPS).') }}</small>
+			</div>
+
+			<div class="form-group mb-3">
+				<label for="vars_git_branch">{{ locale.step_config_git_branch|default('Git Branch') }} *</label>
+				<input class="form-control" type="text" name="vars[git_branch]" id="vars_git_branch" 
+					value="{{ session['var_git_branch']|default('test/sovereign') }}" required
+					placeholder="{{ locale.step_config_git_branch_placeholder|default('ex: main, test/sovereign, develop') }}"/>
+				<small class="form-text text-muted">{{ locale.step_config_git_branch_desc|default('Branch containing the server files.') }}</small>
+			</div>
+
+			<div class="row">
+				<div class="col-md-6">
+					<div class="form-group mb-3">
+						<label for="vars_config_path">{{ locale.step_config_config_path|default('Config Path') }}</label>
+						<input class="form-control" type="text" name="vars[config_path]" id="vars_config_path" 
+							value="{{ session['var_config_path']|default('config/config.sovereign.lua') }}"
+							placeholder="config/config.lua"/>
+						<small class="form-text text-muted">{{ locale.step_config_config_path_desc|default('Path to config.lua file in repository.') }}</small>
+					</div>
+				</div>
+				<div class="col-md-6">
+					<div class="form-group mb-3">
+						<label for="vars_data_path">{{ locale.step_config_data_path|default('Data Path') }}</label>
+						<input class="form-control" type="text" name="vars[data_path]" id="vars_data_path" 
+							value="{{ session['var_data_path']|default('data/') }}"
+							placeholder="data/"/>
+						<small class="form-text text-muted">{{ locale.step_config_data_path_desc|default('Path to data directory in repository.') }}</small>
+					</div>
+				</div>
+			</div>
+
+			<div class="form-group mb-3">
+				<label for="vars_ssh_private_key">{{ locale.step_config_ssh_private_key|default('Private SSH Key (Deploy Key)') }}</label>
+				<textarea class="form-control" name="vars[ssh_private_key]" id="vars_ssh_private_key" rows="5"
+					placeholder="{{ locale.step_config_ssh_private_key_placeholder|default('Paste your private SSH key here. Leave empty to use MYAAC_CANARY_REPO_KEY environment variable.') }}">{{ session['var_ssh_private_key']|default('') }}</textarea>
+				<small class="form-text text-muted">
+					{% if show_ssh_key_env %}
+						{{ locale.step_config_ssh_private_key_env|default('MYAAC_CANARY_REPO_KEY is configured in environment. Leave empty to use it.') }}
+					{% else %}
+						{{ locale.step_config_ssh_private_key_noenv|default('Leave empty if MYAAC_CANARY_REPO_KEY is configured as environment variable.') }}
+					{% endif %}
+				</small>
+			</div>
+		</div>
 	</div>
 
-	<div class="form-group mb-2">
-		<label for="vars_client">{{ locale.step_config_client }}</label>
-		<select class="form-control" name="vars[client]" id="vars_client">
-			{% for id, version in clients %}
-			<option value="{{ id }}"{% if session['var_client'] is not null and session['var_client'] == id %} selected{% endif %}>{{ version }}</option>
-			{% endfor %}
-		</select>
-		<small class="form-text text-muted">{{ locale.step_config_client_desc }}</small>
-	</div>
+	<div class="card mb-4">
+		<div class="card-header bg-secondary text-white">
+			<h5 class="mb-0">{{ locale.step_config_site_title|default('Site Configuration') }}</h5>
+		</div>
+		<div class="card-body">
+			<div class="form-group mb-2">
+				<label for="vars_site_url">{{ locale.step_config_site_url }}</label>
+				<input class="form-control" type="text" name="vars[site_url]" id="vars_site_url" value="{{ session['var_site_url'] }}"/>
+				<small class="form-text text-muted">{{ locale.step_config_site_url_desc }}</small>
+			</div>
 
-	<div class="form-group mb-2">
-		<label for="vars_usage">{{ locale.step_config_usage }}</label>
-		<input type="hidden" value="0" name="vars[usage]">
-		<input type="checkbox" name="vars[usage]" id="vars_usage" value="1"{% if session['var_usage'] is null or session['var_usage'] == 1 %} checked{% endif %}/>
-		<small class="form-text text-muted d-block">{{ locale.step_config_usage_desc }}</small>
+			<div class="form-group mb-2">
+				<label for="vars_date_timezone">{{ locale.step_config_timezone }}</label>
+				<select class="form-control" name="vars[date_timezone]" id="vars_date_timezone">
+					{% for timezone in timezones %}
+					<option value="{{ timezone }}"{% if (session['var_date_timezone'] is not null and session['var_date_timezone'] == timezone) or (session['var_date_timezone'] is null and timezone == 'Europe/Warsaw') %} selected{% endif %}>{{ timezone }}</option>
+					{% endfor %}
+				</select>
+				<small class="form-text text-muted">{{ locale.step_config_timezone_desc }}</small>
+			</div>
+
+			<div class="form-group mb-2">
+				<label for="vars_client">{{ locale.step_config_client }}</label>
+				<select class="form-control" name="vars[client]" id="vars_client">
+					{% for id, version in clients %}
+					<option value="{{ id }}"{% if session['var_client'] is not null and session['var_client'] == id %} selected{% endif %}>{{ version }}</option>
+					{% endfor %}
+				</select>
+				<small class="form-text text-muted">{{ locale.step_config_client_desc }}</small>
+			</div>
+
+			<div class="form-group mb-2">
+				<label for="vars_usage">{{ locale.step_config_usage }}</label>
+				<input type="hidden" value="0" name="vars[usage]">
+				<input type="checkbox" name="vars[usage]" id="vars_usage" value="1"{% if session['var_usage'] is null or session['var_usage'] == 1 %} checked{% endif %}/>
+				<small class="form-text text-muted d-block">{{ locale.step_config_usage_desc }}</small>
+			</div>
+		</div>
 	</div>
 
 	<div class="text-center m-3">

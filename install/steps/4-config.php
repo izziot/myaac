@@ -18,17 +18,24 @@ if (empty($_SESSION['var_site_url'])) {
 	$_SESSION['var_site_url'] = $siteURL;
 }
 
-// Docker mode: auto-detect server_path from servers.json
+// Docker mode detection
 $isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv');
-if ($isDocker && empty($_SESSION['var_server_path'])) {
-	$serversFile = BASE . 'config/servers.json';
-	if (file_exists($serversFile)) {
-		$servers = json_decode(file_get_contents($serversFile), true);
-		if (!empty($servers['servers'])) {
-			$firstServer = $servers['servers'][0];
-			$_SESSION['var_server_path'] = '/srv/servers/' . $firstServer['id'] . '/';
-		}
-	}
+
+// Default values for server configuration
+if (!isset($_SESSION['var_git_repo'])) {
+	$_SESSION['var_git_repo'] = 'git@github.com:izziot/canary.git';
+}
+if (!isset($_SESSION['var_git_branch'])) {
+	$_SESSION['var_git_branch'] = 'test/sovereign';
+}
+if (!isset($_SESSION['var_config_path'])) {
+	$_SESSION['var_config_path'] = 'config/config.sovereign.lua';
+}
+if (!isset($_SESSION['var_data_path'])) {
+	$_SESSION['var_data_path'] = 'data/';
+}
+if (!isset($_SESSION['var_server_name'])) {
+	$_SESSION['var_server_name'] = 'sovereign';
 }
 
 $twig->display('install.config.html.twig', array(
@@ -37,6 +44,7 @@ $twig->display('install.config.html.twig', array(
 	'locale' => $locale,
 	'session' => $_SESSION,
 	'errors' => isset($errors) ? $errors : null,
-	'buttons' => next_buttons()
+	'buttons' => next_buttons(),
+	'is_docker' => $isDocker,
+	'show_ssh_key_env' => !empty(getenv('MYAAC_CANARY_REPO_KEY'))
 ));
-
