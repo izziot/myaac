@@ -26,7 +26,6 @@ services:
       # Persist uploads and cache
       - myaac-uploads:/var/www/html/images
       - myaac-cache:/var/www/html/system/cache
-      - myaac-config:/var/www/html/config.local.php
       
     networks:
       - coolify
@@ -41,7 +40,6 @@ services:
 volumes:
   myaac-uploads:
   myaac-cache:
-  myaac-config:
 
 networks:
   coolify:
