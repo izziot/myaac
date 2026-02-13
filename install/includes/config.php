@@ -1,6 +1,11 @@
 <?php
 defined('MYAAC') or die('Direct access not allowed!');
 
+$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv') || strpos(getenv('HOSTNAME') ?: '', 'docker') !== false;
+
+// Check if we're using multi-server UI configuration
+$usingMultiServer = !empty($_SESSION['var_servers']) && is_array($_SESSION['var_servers']);
+
 if(!isset($_SESSION['var_server_path'])) {
 	error($locale['step_database_error_config']);
 	$error = true;
@@ -11,14 +16,22 @@ $config['server_path'] = $_SESSION['var_server_path'];
 if(isset($config['server_path']) && $config['server_path'][strlen($config['server_path']) - 1] != '/')
 	$config['server_path'] .= '/';
 
-// Get config filename from session (set during clone process in index.php)
+// Get config filename from session - try servers array first, then legacy var
 $configFileName = 'config.lua';
-if (!empty($_SESSION['var_config_path'])) {
-	// Extract just the filename from the path (e.g., config/config.sovereign.lua -> config.sovereign.lua)
+if (!empty($_SESSION['var_servers']) && is_array($_SESSION['var_servers'])) {
+	$firstServer = reset($_SESSION['var_servers']);
+	if (!empty($firstServer['config_path'])) {
+		$configFileName = basename($firstServer['config_path']);
+	}
+} elseif (!empty($_SESSION['var_config_path'])) {
 	$configFileName = basename($_SESSION['var_config_path']);
 }
 
-if((!isset($error) || !$error) && isset($config['server_path']) && !file_exists($config['server_path'] . $configFileName)) {
+// Skip config.lua validation in Docker mode OR when using multi-server UI
+// In these cases, config will be loaded from database after installation
+$skipConfigValidation = $isDocker || $usingMultiServer;
+
+if(!$skipConfigValidation && (!isset($error) || !$error) && isset($config['server_path']) && !file_exists($config['server_path'] . $configFileName)) {
 	error($locale['step_database_error_config'] . ' Looking for: ' . $config['server_path'] . $configFileName);
 	$error = true;
 }

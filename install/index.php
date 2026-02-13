@@ -61,10 +61,19 @@ $errors = array();
 
 if($step == 'database') {
 	// Handle server configuration from UI - clone repository if needed
-	// Improved Docker detection
-	$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv') || strpos(getenv('HOSTNAME') ?: '', 'docker') !== false;
+	// Improved Docker detection - check multiple indicators
+	$isDocker = getenv('DOCKER_BUILD') === '1' || 
+				file_exists('/.dockerenv') || 
+				strpos(getenv('HOSTNAME') ?: '', 'docker') !== false ||
+				strpos(getenv('HOSTNAME') ?: '', 'myaac') !== false;
 	
-	// Check if we need to clone repositories (Docker mode with git configuration)
+	// Check if we're using multi-server UI configuration (forces Docker-like behavior)
+	$usingMultiServer = !empty($_SESSION['var_servers']) && is_array($_SESSION['var_servers']);
+	
+	// If using multi-server UI, treat as Docker mode even if not in container
+	$isInstallMode = $isDocker || $usingMultiServer;
+	
+	// Check if we need to clone repositories (Docker mode or multi-server UI)
 	// Support both new array format (var_servers) and legacy individual variables
 	$servers = $_SESSION['var_servers'] ?? [];
 	
@@ -79,8 +88,10 @@ if($step == 'database') {
 		]];
 	}
 	
-	// Clone each server repository (Docker mode only)
-	if ($isDocker && !empty($servers)) {
+	$cloneErrors = [];
+	
+	// Clone each server repository (Docker mode or multi-server UI)
+	if ($isInstallMode && !empty($servers)) {
 		$sshKey = !empty($_SESSION['var_ssh_private_key']) ? $_SESSION['var_ssh_private_key'] : getenv('MYAAC_CANARY_REPO_KEY');
 		
 		foreach ($servers as $server) {
@@ -137,10 +148,16 @@ if($step == 'database') {
 				
 				if ($returnCode !== 0 || !file_exists($serverPath . $configPath)) {
 					$cloneError = "Failed to clone repository for server '{$serverName}'. Output: " . implode("\n", $output);
+					$cloneErrors[] = $cloneError;
 					error_log($cloneError);
 				}
 			}
 		}
+	}
+	
+	// Store clone errors in session to display to user
+	if (!empty($cloneErrors)) {
+		$_SESSION['clone_errors'] = $cloneErrors;
 	}
 	
 	// ALWAYS set var_server_path from servers array (first server as default)
@@ -163,8 +180,8 @@ if($step == 'database') {
 			continue;
 		}
 
-		// Skip validation for optional fields in Docker mode
-		if ($isDocker && in_array($key, array('config_path', 'data_path', 'servers'))) {
+		// Skip validation for optional fields in Docker mode or multi-server UI
+		if ($isInstallMode && in_array($key, array('config_path', 'data_path', 'servers'))) {
 			continue;
 		}
 		
@@ -199,11 +216,11 @@ if($step == 'database') {
 				$configFileName = basename($configFileName);
 			}
 
-			// In Docker mode, skip config file validation if path doesn't exist yet (will be cloned)
-			if (!$isDocker || file_exists($config['server_path'] . $configFileName)) {
+			// In Docker mode or multi-server UI, skip config file validation if path doesn't exist yet (will be cloned)
+			if (!$isInstallMode || file_exists($config['server_path'] . $configFileName)) {
 				// OK - file exists or we're not in Docker mode
 			} else {
-				// In Docker mode, config will be cloned later, skip validation
+				// In Docker mode or multi-server UI, config will be cloned later, skip validation
 				continue;
 			}
 		}
@@ -300,14 +317,28 @@ $error = false;
 
 clearstatcache();
 if(is_writable(CACHE) && (MYAAC_OS != 'WINDOWS' || win_is_writable(CACHE))) {
-	// Skip IP check when running in Docker
-	$isDocker = getenv('DOCKER_BUILD') === '1' || file_exists('/.dockerenv') || strpos(getenv('HOSTNAME') ?: '', 'docker') !== false;
+	// Skip IP check when running in Docker or using multi-server UI
+	$isDockerCheck = getenv('DOCKER_BUILD') === '1' || 
+					 file_exists('/.dockerenv') || 
+					 strpos(getenv('HOSTNAME') ?: '', 'docker') !== false ||
+					 strpos(getenv('HOSTNAME') ?: '', 'myaac') !== false;
 	
-	if(!$isDocker && !file_exists(BASE . 'install/ip.txt')) {
+	$usingMultiServer = !empty($_SESSION['var_servers']) && is_array($_SESSION['var_servers']);
+	$isInstallMode = $isDockerCheck || $usingMultiServer;
+	
+	// Show clone errors if any
+	if (!empty($_SESSION['clone_errors'])) {
+		foreach ($_SESSION['clone_errors'] as $cloneError) {
+			$errors[] = $cloneError;
+		}
+		$step = 'config';
+	}
+	
+	if(!$isInstallMode && !file_exists(BASE . 'install/ip.txt')) {
 		$content = warning('AAC installation is disabled. To enable it make file <b>ip.txt</b> in install/ directory and put there your IP.<br/>
 		Your IP is:<br /><b>' . get_browser_real_ip() . '</b>', true);
 	}
-	else if(!$isDocker) {
+	else if(!$isInstallMode) {
 		$file_content = trim(file_get_contents(BASE . 'install/ip.txt'));
 		$allow = false;
 		$listIP = preg_split('/\s+/', $file_content);
@@ -332,8 +363,8 @@ if(is_writable(CACHE) && (MYAAC_OS != 'WINDOWS' || win_is_writable(CACHE))) {
 			ob_end_clean();
 		}
 	}
-	else if($isDocker) {
-		// Running in Docker - skip IP check and proceed with installation
+	else if($isInstallMode) {
+		// Running in Docker or using multi-server UI - skip IP check and proceed with installation
 		ob_start();
 
 		$step_id = array_search($step, $steps);
