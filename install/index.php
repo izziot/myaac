@@ -129,6 +129,13 @@ if($step == 'database') {
 		$sshKey = !empty($_SESSION['var_ssh_private_key']) ? trim($_SESSION['var_ssh_private_key']) : getenv('MYAAC_CANARY_REPO_KEY');
 		if (!empty($sshKey)) {
 			$sshKey = trim($sshKey);
+			// Normalize line endings to Unix LF (required for SSH keys in Linux containers)
+			$sshKey = str_replace("\r\n", "\n", $sshKey);
+			$sshKey = str_replace("\r", "\n", $sshKey);
+			// Ensure key ends with newline (SSH requirement)
+			if (substr($sshKey, -1) !== "\n") {
+				$sshKey .= "\n";
+			}
 		}
 
 		error_log("SSH key source: " . (!empty($_SESSION['var_ssh_private_key']) ? 'SESSION' : (getenv('MYAAC_CANARY_REPO_KEY') ? 'ENV' : 'NONE')));
@@ -234,17 +241,19 @@ if($step == 'database') {
 			}
 			
 			// 4.1: Verificar se repo existe usando git ls-remote
-			$lsRemoteCmd = 'git ls-remote --heads ' . escapeshellcmd($gitRepo) . ' 2>&1';
+			$lsRemoteCmd = 'git ls-remote --heads ' . escapeshellarg($gitRepo) . ' 2>&1';
 			if (!empty($sshDir)) {
-				$lsRemoteCmd = 'GIT_SSH_COMMAND="ssh -i ' . $sshDir . '/id_rsa -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" ' . $lsRemoteCmd;
+				$lsRemoteCmd = 'GIT_SSH_COMMAND=' . escapeshellarg('ssh -i ' . $sshDir . '/id_rsa -o StrictHostKeyChecking=no -o IdentitiesOnly=yes') . ' ' . $lsRemoteCmd;
 			}
 			exec($lsRemoteCmd, $lsRemoteOutput, $lsRemoteReturn);
 			$lsRemoteOutputStr = implode("\n", $lsRemoteOutput);
 			error_log("  git ls-remote return code: " . $lsRemoteReturn);
 			error_log("  git ls-remote output: " . $lsRemoteOutputStr);
-			
+			error_log("  git ls-remote command: " . $lsRemoteCmd);
+
 			if ($lsRemoteReturn !== 0 || empty($lsRemoteOutputStr)) {
-				$cloneErrors[] = "Server '{$serverName}': Cannot access repository. Check URL and SSH key permissions.";
+				$gitError = !empty($lsRemoteOutputStr) ? $lsRemoteOutputStr : 'No output from git command';
+				$cloneErrors[] = "Server '{$serverName}': Cannot access repository. Git error: " . $gitError;
 				error_log("  ERROR: Repository not accessible!");
 				continue;
 			}
@@ -295,9 +304,9 @@ if($step == 'database') {
 			error_log("  mkdir result: " . ($mkdirReturn === 0 ? 'success' : 'failed - ' . implode(' ', $mkdirOutput)));
 			
 			// 5.2: Executar git clone
-			$cloneCmd = 'git clone --depth=1 --branch "' . $gitBranch . '" --sparse "' . $gitRepo . '" ' . escapeshellcmd($serverPath) . ' 2>&1';
+			$cloneCmd = 'git clone --depth=1 --branch ' . escapeshellarg($gitBranch) . ' --sparse ' . escapeshellarg($gitRepo) . ' ' . escapeshellarg($serverPath) . ' 2>&1';
 			if (!empty($sshDir)) {
-				$cloneCmd = 'GIT_SSH_COMMAND="ssh -i ' . $sshDir . '/id_rsa -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" ' . $cloneCmd;
+				$cloneCmd = 'GIT_SSH_COMMAND=' . escapeshellarg('ssh -i ' . $sshDir . '/id_rsa -o StrictHostKeyChecking=no -o IdentitiesOnly=yes') . ' ' . $cloneCmd;
 			}
 			error_log("  Clone command: " . $cloneCmd);
 			
