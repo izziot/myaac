@@ -125,9 +125,12 @@ if($step == 'database') {
 		error_log("=== DEBUG: FASE 1 - Validando dados de entrada ===");
 		error_log("Number of servers configured: " . count($servers));
 		
-		// Check SSH key
-		$sshKey = !empty($_SESSION['var_ssh_private_key']) ? $_SESSION['var_ssh_private_key'] : getenv('MYAAC_CANARY_REPO_KEY');
-		
+		// Check SSH key - trim to remove any leading/trailing whitespace
+		$sshKey = !empty($_SESSION['var_ssh_private_key']) ? trim($_SESSION['var_ssh_private_key']) : getenv('MYAAC_CANARY_REPO_KEY');
+		if (!empty($sshKey)) {
+			$sshKey = trim($sshKey);
+		}
+
 		error_log("SSH key source: " . (!empty($_SESSION['var_ssh_private_key']) ? 'SESSION' : (getenv('MYAAC_CANARY_REPO_KEY') ? 'ENV' : 'NONE')));
 		
 		// Debug: Check if git is available
@@ -232,8 +235,8 @@ if($step == 'database') {
 			
 			// 4.1: Verificar se repo existe usando git ls-remote
 			$lsRemoteCmd = 'git ls-remote --heads ' . escapeshellcmd($gitRepo) . ' 2>&1';
-			if (!empty($sshKey)) {
-				$lsRemoteCmd = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" ' . $lsRemoteCmd;
+			if (!empty($sshDir)) {
+				$lsRemoteCmd = 'GIT_SSH_COMMAND="ssh -i ' . $sshDir . '/id_rsa -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" ' . $lsRemoteCmd;
 			}
 			exec($lsRemoteCmd, $lsRemoteOutput, $lsRemoteReturn);
 			$lsRemoteOutputStr = implode("\n", $lsRemoteOutput);
@@ -293,8 +296,8 @@ if($step == 'database') {
 			
 			// 5.2: Executar git clone
 			$cloneCmd = 'git clone --depth=1 --branch "' . $gitBranch . '" --sparse "' . $gitRepo . '" ' . escapeshellcmd($serverPath) . ' 2>&1';
-			if (!empty($sshKey)) {
-				$cloneCmd = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" ' . $cloneCmd;
+			if (!empty($sshDir)) {
+				$cloneCmd = 'GIT_SSH_COMMAND="ssh -i ' . $sshDir . '/id_rsa -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" ' . $cloneCmd;
 			}
 			error_log("  Clone command: " . $cloneCmd);
 			
