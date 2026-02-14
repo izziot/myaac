@@ -156,36 +156,78 @@ if($step == 'database') {
 		
 		$sshDir = null;
 		if (!empty($sshKey)) {
-			// 2.1: Validar formato da chave SSH
-			$keyFirstLine = trim(explode("\n", $sshKey)[0] ?? '');
-			$isValidKeyFormat = strpos($keyFirstLine, '-----BEGIN') !== false;
-			
-			error_log("SSH key format check: " . ($isValidKeyFormat ? "VALID" : "INVALID"));
+			// 2.1: Comprehensive SSH key validation
+			$keyLines = explode("\n", $sshKey);
+			$keyFirstLine = trim($keyLines[0] ?? '');
+			$keyContent = implode("\n", $keyLines);
+
 			error_log("SSH key first line: " . $keyFirstLine);
 			error_log("SSH key total length: " . strlen($sshKey));
-			
-			if (!$isValidKeyFormat) {
+
+			// Check for BEGIN marker
+			if (strpos($keyFirstLine, '-----BEGIN') === false) {
 				$cloneErrors[] = "SSH key format is invalid. Expected to start with '-----BEGIN'.";
-				error_log("ERROR: SSH key format invalid!");
-			} else {
+				error_log("ERROR: SSH key missing BEGIN marker!");
+			}
+			// Check for END marker
+			else if (strpos($keyContent, '-----END') === false) {
+				$cloneErrors[] = "SSH key is incomplete or corrupted. Missing '-----END' marker.";
+				error_log("ERROR: SSH key missing END marker!");
+			}
+			// Check for encrypted key (passphrase protected)
+			else if (
+				strpos($keyContent, 'ENCRYPTED') !== false ||
+				strpos($keyContent, 'Proc-Type: 4,ENCRYPTED') !== false ||
+				strpos($keyContent, 'DEK-Info:') !== false
+			) {
+				$cloneErrors[] = "SSH key is encrypted with a passphrase. Please remove the passphrase with: ssh-keygen -p -f your_key";
+				error_log("ERROR: SSH key is encrypted!");
+			}
+			// Check for old PEM format (RSA)
+			else if (strpos($keyFirstLine, 'BEGIN RSA PRIVATE KEY') !== false) {
+				$cloneErrors[] = "SSH key is in old RSA PEM format. Please convert to OpenSSH format with: ssh-keygen -p -m RFC4716 -f your_key";
+				error_log("ERROR: SSH key is old RSA PEM format!");
+			}
+			// Check for old PEM format (EC)
+			else if (strpos($keyFirstLine, 'BEGIN EC PRIVATE KEY') !== false) {
+				$cloneErrors[] = "SSH key is in old EC PEM format. Please convert to OpenSSH format with: ssh-keygen -p -m RFC4716 -f your_key";
+				error_log("ERROR: SSH key is old EC PEM format!");
+			}
+			// Valid format - proceed with setup
+			else {
+				error_log("SSH key format check: VALID");
+
+				// Identify key type for logging
+				if (strpos($keyFirstLine, 'BEGIN OPENSSH PRIVATE KEY') !== false) {
+					error_log("SSH key type: OpenSSH format (supported)");
+				} else if (strpos($keyFirstLine, 'BEGIN PRIVATE KEY') !== false) {
+					error_log("SSH key type: PKCS8 format (may work)");
+				}
+
 				// 2.2-2.4: Setup do diretório temporário
 				$sshDir = '/tmp/ssh_' . uniqid();
 				$mkdirResult = @mkdir($sshDir, 0700, true);
 				error_log("SSH temp dir created: " . $sshDir . " (result: " . ($mkdirResult ? 'success' : 'failed') . ")");
-				
+
 				$keyWriteResult = @file_put_contents($sshDir . '/id_rsa', $sshKey);
 				error_log("SSH key written: " . ($keyWriteResult ? "success ({$keyWriteResult} bytes)" : "failed"));
-				
+
 				@chmod($sshDir . '/id_rsa', 0600);
 				@chmod($sshDir, 0700);
 				$keyPerms = substr(sprintf('%o', fileperms($sshDir . '/id_rsa')), -4);
 				$dirPerms = substr(sprintf('%o', fileperms($sshDir)), -4);
 				error_log("Permissions - dir: {$dirPerms}, key: {$keyPerms}");
-				
-				// 2.5: Criar SSH config
-				$sshConfig = "Host github.com\n    HostName github.com\n    User git\n    IdentityFile {$sshDir}/id_rsa\n    StrictHostKeyChecking no\n    IdentitiesOnly yes\n";
+
+				// 2.5: Create SSH config that works with all git hosts
+				$sshConfig = "Host *\n";
+				$sshConfig .= "    StrictHostKeyChecking no\n";
+				$sshConfig .= "    UserKnownHostsFile /dev/null\n";
+				$sshConfig .= "    IdentityFile {$sshDir}/id_rsa\n";
+				$sshConfig .= "    IdentitiesOnly yes\n";
+				$sshConfig .= "    LogLevel ERROR\n";
+
 				@file_put_contents($sshDir . '/config', $sshConfig);
-				putenv('HOME=' . $sshDir);
+				@chmod($sshDir . '/config', 0600);
 				error_log("SSH config written to {$sshDir}/config");
 			}
 		} else {
@@ -198,10 +240,16 @@ if($step == 'database') {
 		error_log("=== DEBUG: FASE 3 - Teste de Conectividade SSH ===");
 		
 		if (!empty($sshKey) && !empty($sshDir)) {
-			// 3.1: Testar conexão SSH
-			$sshTestCmd = 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" ssh -T git@github.com 2>&1';
+			// 3.1: Testar conexão SSH com opções inline (mais robusto que config file)
+			$sshOpts = '-i ' . escapeshellarg($sshDir . '/id_rsa') .
+			          ' -o StrictHostKeyChecking=no' .
+			          ' -o UserKnownHostsFile=/dev/null' .
+			          ' -o IdentitiesOnly=yes' .
+			          ' -o LogLevel=ERROR';
+			$sshTestCmd = 'env HOME=' . escapeshellarg($sshDir) . ' ssh ' . $sshOpts . ' -T git@github.com 2>&1';
 			exec($sshTestCmd, $sshTestOutput, $sshTestReturn);
 			$sshTestOutputStr = implode("\n", $sshTestOutput);
+			error_log("SSH connection test command: " . $sshTestCmd);
 			error_log("SSH connection test return code: " . $sshTestReturn);
 			error_log("SSH connection test output: " . $sshTestOutputStr);
 			
@@ -243,7 +291,13 @@ if($step == 'database') {
 			// 4.1: Verificar se repo existe usando git ls-remote
 			$lsRemoteCmd = 'git ls-remote --heads ' . escapeshellarg($gitRepo) . ' 2>&1';
 			if (!empty($sshDir)) {
-				$lsRemoteCmd = 'GIT_SSH_COMMAND=' . escapeshellarg('ssh -i ' . $sshDir . '/id_rsa -o StrictHostKeyChecking=no -o IdentitiesOnly=yes') . ' ' . $lsRemoteCmd;
+				// Use SSH options inline instead of config file (more reliable)
+				$sshCmd = 'ssh -i ' . escapeshellarg($sshDir . '/id_rsa') .
+				         ' -o StrictHostKeyChecking=no' .
+				         ' -o UserKnownHostsFile=/dev/null' .
+				         ' -o IdentitiesOnly=yes' .
+				         ' -o LogLevel=ERROR';
+				$lsRemoteCmd = 'env HOME=' . escapeshellarg($sshDir) . ' GIT_SSH_COMMAND=' . escapeshellarg($sshCmd) . ' ' . $lsRemoteCmd;
 			}
 			exec($lsRemoteCmd, $lsRemoteOutput, $lsRemoteReturn);
 			$lsRemoteOutputStr = implode("\n", $lsRemoteOutput);
@@ -253,7 +307,20 @@ if($step == 'database') {
 
 			if ($lsRemoteReturn !== 0 || empty($lsRemoteOutputStr)) {
 				$gitError = !empty($lsRemoteOutputStr) ? $lsRemoteOutputStr : 'No output from git command';
-				$cloneErrors[] = "Server '{$serverName}': Cannot access repository. Git error: " . $gitError;
+
+				// Map common errors to user-friendly messages
+				$userMessage = "Server '{$serverName}': Cannot access repository.";
+				if (stripos($gitError, 'Permission denied') !== false || stripos($gitError, 'publickey') !== false) {
+					$userMessage = "Server '{$serverName}': SSH authentication failed. Please verify your SSH key has access to this repository.";
+				} else if (stripos($gitError, 'error in libcrypto') !== false) {
+					$userMessage = "Server '{$serverName}': SSH key format error. Please ensure key is unencrypted OpenSSH format.";
+				} else if (stripos($gitError, 'Could not resolve hostname') !== false) {
+					$userMessage = "Server '{$serverName}': Cannot resolve hostname. Check your repository URL.";
+				} else if (stripos($gitError, 'Repository not found') !== false || stripos($gitError, 'not found') !== false) {
+					$userMessage = "Server '{$serverName}': Repository not found or you don't have access.";
+				}
+
+				$cloneErrors[] = $userMessage . " Git error: " . $gitError;
 				error_log("  ERROR: Repository not accessible!");
 				continue;
 			}
@@ -306,14 +373,36 @@ if($step == 'database') {
 			// 5.2: Executar git clone
 			$cloneCmd = 'git clone --depth=1 --branch ' . escapeshellarg($gitBranch) . ' --sparse ' . escapeshellarg($gitRepo) . ' ' . escapeshellarg($serverPath) . ' 2>&1';
 			if (!empty($sshDir)) {
-				$cloneCmd = 'GIT_SSH_COMMAND=' . escapeshellarg('ssh -i ' . $sshDir . '/id_rsa -o StrictHostKeyChecking=no -o IdentitiesOnly=yes') . ' ' . $cloneCmd;
+				// Use SSH options inline instead of config file (more reliable)
+				$sshCmd = 'ssh -i ' . escapeshellarg($sshDir . '/id_rsa') .
+				         ' -o StrictHostKeyChecking=no' .
+				         ' -o UserKnownHostsFile=/dev/null' .
+				         ' -o IdentitiesOnly=yes' .
+				         ' -o LogLevel=ERROR';
+				$cloneCmd = 'env HOME=' . escapeshellarg($sshDir) . ' GIT_SSH_COMMAND=' . escapeshellarg($sshCmd) . ' ' . $cloneCmd;
 			}
 			error_log("  Clone command: " . $cloneCmd);
-			
+
 			exec($cloneCmd, $cloneOutput, $cloneReturn);
 			$cloneOutputStr = implode("\n", $cloneOutput);
 			error_log("  Clone return code: " . $cloneReturn);
 			error_log("  Clone output:\n" . $cloneOutputStr);
+
+			// Check for clone errors with user-friendly messages
+			if ($cloneReturn !== 0) {
+				$userMessage = "Server '{$serverName}': Clone failed.";
+				if (stripos($cloneOutputStr, 'Permission denied') !== false || stripos($cloneOutputStr, 'publickey') !== false) {
+					$userMessage = "Server '{$serverName}': SSH authentication failed during clone. Please verify your SSH key has access to this repository.";
+				} else if (stripos($cloneOutputStr, 'error in libcrypto') !== false) {
+					$userMessage = "Server '{$serverName}': SSH key format error during clone. Please ensure key is unencrypted OpenSSH format.";
+				} else if (stripos($cloneOutputStr, 'Could not resolve hostname') !== false) {
+					$userMessage = "Server '{$serverName}': Cannot resolve hostname during clone. Check your repository URL.";
+				} else if (stripos($cloneOutputStr, 'Repository not found') !== false || stripos($cloneOutputStr, 'not found') !== false) {
+					$userMessage = "Server '{$serverName}': Repository not found during clone or you don't have access.";
+				}
+
+				error_log("  ERROR: Clone failed - " . $userMessage);
+			}
 			
 			// 5.3: Se clone succeeded, executar sparse-checkout
 			if ($cloneReturn === 0 && file_exists($serverPath)) {
